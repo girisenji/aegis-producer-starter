@@ -1,0 +1,486 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.github.girisenji.aegis</groupId>
+  <artifactId>aegis-ai-producer-starter</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>jar</packaging>
+
+  <name>Aegis AI Producer Starter</name>
+  <description>
+    Zero-business-logic Spring Boot auto-configuration starter that wires a Logback
+    KafkaAppender (with PII masking) into any microservice, forwarding ERROR events
+    to the aegis-production-errors Kafka topic.
+  </description>
+  <url>https://github.com/girisenji/aegis-producer-starter</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>girisenji</id>
+      <name>Giri Senji</name>
+      <url>https://github.com/girisenji</url>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:git://github.com/girisenji/aegis-producer-starter.git</connection>
+    <developerConnection>scm:git:ssh://github.com/girisenji/aegis-producer-starter.git</developerConnection>
+    <url>https://github.com/girisenji/aegis-producer-starter</url>
+  </scm>
+
+  <!-- ================================================================ -->
+  <!-- Properties                                                         -->
+  <!-- ================================================================ -->
+  <properties>
+    <java.version>21</java.version>
+    <maven.compiler.source>21</maven.compiler.source>
+    <maven.compiler.target>21</maven.compiler.target>
+    <maven.compiler.release>21</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+    <!-- dependency versions -->
+    <spring-boot.version>3.5.11</spring-boot.version>
+    <testcontainers.version>1.21.4</testcontainers.version>
+    <logback-kafka-appender.version>0.2.0-RC2</logback-kafka-appender.version>
+    <logstash-logback-encoder.version>8.1</logstash-logback-encoder.version>
+    <awaitility.version>4.2.2</awaitility.version>
+
+    <!-- plugin versions -->
+    <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
+    <maven-surefire-plugin.version>3.5.5</maven-surefire-plugin.version>
+    <maven-failsafe-plugin.version>3.5.5</maven-failsafe-plugin.version>
+    <jacoco-maven-plugin.version>0.8.14</jacoco-maven-plugin.version>
+    <owasp-dependency-check.version>12.1.0</owasp-dependency-check.version>
+
+    <!-- coverage thresholds -->
+    <jacoco.line.minimum>0.90</jacoco.line.minimum>
+    <jacoco.branch.minimum>0.85</jacoco.branch.minimum>
+  </properties>
+
+  <!-- ================================================================ -->
+  <!-- Dependency Management — import Spring Boot BOM + TC BOM           -->
+  <!-- ================================================================ -->
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${spring-boot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers-bom</artifactId>
+        <version>${testcontainers.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <!-- ================================================================ -->
+  <!-- Dependencies                                                       -->
+  <!-- ================================================================ -->
+  <dependencies>
+
+    <!-- Compile / library scope -->
+
+    <!--
+      logback-kafka-appender: ships kafka-clients 2.8.  We exclude it and
+      rely on the kafka-clients version managed by Spring Boot (3.7.x).
+    -->
+    <dependency>
+      <groupId>com.github.danielwegener</groupId>
+      <artifactId>logback-kafka-appender</artifactId>
+      <version>${logback-kafka-appender.version}</version>
+      <exclusions>
+        <exclusion>
+          <groupId>org.apache.kafka</groupId>
+          <artifactId>kafka-clients</artifactId>
+        </exclusion>
+      </exclusions>
+    </dependency>
+
+    <!-- Kafka clients — version aligned with Spring Boot BOM -->
+    <dependency>
+      <groupId>org.apache.kafka</groupId>
+      <artifactId>kafka-clients</artifactId>
+    </dependency>
+
+    <!-- Structured JSON encoding for Logback -->
+    <dependency>
+      <groupId>net.logstash.logback</groupId>
+      <artifactId>logstash-logback-encoder</artifactId>
+      <version>${logstash-logback-encoder.version}</version>
+    </dependency>
+
+    <!--
+      spring-boot-autoconfigure is optional: consumers pull it transitively
+      through spring-boot-starter. Marking optional prevents double-loading
+      in consumer applications.
+    -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-autoconfigure</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- Annotation processor — generates spring-configuration-metadata.json -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-configuration-processor</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- Logback classic is provided by the host application -->
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!--
+      Jakarta Annotations (@PostConstruct) — provided by JEE / Spring Boot
+      containers; declared optional so consumers are not forced to add it.
+    -->
+    <dependency>
+      <groupId>jakarta.annotation</groupId>
+      <artifactId>jakarta.annotation-api</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!--
+      Jackson Core provides JsonGenerator used by MaskingMessageJsonProvider.
+      logstash-logback-encoder 8.x brings jackson-databind (Jackson 2.x) which
+      includes jackson-core transitively; explicit declaration avoids version surprises.
+      Note: logstash-logback-encoder 9.x migrated to Jackson 3 (tools.jackson),
+      which is incompatible with Spring Boot 3.x — hence we pin to 8.x.
+    -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-core</artifactId>
+      <optional>true</optional>
+    </dependency>
+
+    <!-- Test scope -->
+
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Need a full Spring context for auto-configuration tests -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Testcontainers — Kafka broker for integration tests -->
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>kafka</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- spring-kafka: Kafka consumer used only in integration tests -->
+    <dependency>
+      <groupId>org.springframework.kafka</groupId>
+      <artifactId>spring-kafka</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Awaitility for async assertion in integration tests -->
+    <dependency>
+      <groupId>org.awaitility</groupId>
+      <artifactId>awaitility</artifactId>
+      <version>${awaitility.version}</version>
+      <scope>test</scope>
+    </dependency>
+
+  </dependencies>
+
+  <!-- ================================================================ -->
+  <!-- Build                                                              -->
+  <!-- ================================================================ -->
+  <build>
+    <plugins>
+
+      <!-- Compiler: Java 21 -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>${maven-compiler-plugin.version}</version>
+        <configuration>
+          <release>21</release>
+          <compilerArgs>
+            <arg>-Xlint:all</arg>
+            <arg>-Xlint:-processing</arg>
+          </compilerArgs>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>org.springframework.boot</groupId>
+              <artifactId>spring-boot-configuration-processor</artifactId>
+              <version>${spring-boot.version}</version>
+            </path>
+          </annotationProcessorPaths>
+        </configuration>
+      </plugin>
+
+      <!-- Surefire: JUnit 5 platform -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${maven-surefire-plugin.version}</version>
+        <configuration>
+          <argLine>@{argLine} -XX:+EnableDynamicAgentLoading</argLine>
+          <includes>
+            <include>**/*Test.java</include>
+            <include>**/*Tests.java</include>
+          </includes>
+          <excludes>
+            <!-- Integration tests run via failsafe -->
+            <exclude>**/*IT.java</exclude>
+          </excludes>
+        </configuration>
+      </plugin>
+
+      <!-- Failsafe: Integration tests (*IT.java) -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <version>${maven-failsafe-plugin.version}</version>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+        <configuration>
+          <argLine>@{argLine} -XX:+EnableDynamicAgentLoading</argLine>
+        </configuration>
+      </plugin>
+
+      <!-- JaCoCo: instrument + enforce 90 % line / 85 % branch coverage -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco-maven-plugin.version}</version>
+        <executions>
+          <!-- Unit tests -->
+          <execution>
+            <id>prepare-agent</id>
+            <goals>
+              <goal>prepare-agent</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>test</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+          </execution>
+          <!-- Integration tests -->
+          <execution>
+            <id>prepare-agent-integration</id>
+            <goals>
+              <goal>prepare-agent-integration</goal>
+            </goals>
+          </execution>
+          <execution>
+            <id>report-integration</id>
+            <phase>post-integration-test</phase>
+            <goals>
+              <goal>report-integration</goal>
+            </goals>
+          </execution>
+          <!-- Merge unit + integration into a single report -->
+          <execution>
+            <id>merge-results</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>merge</goal>
+            </goals>
+            <configuration>
+              <fileSets>
+                <fileSet>
+                  <directory>${project.build.directory}</directory>
+                  <includes>
+                    <include>jacoco.exec</include>
+                    <include>jacoco-it.exec</include>
+                  </includes>
+                </fileSet>
+              </fileSets>
+              <destFile>${project.build.directory}/jacoco-merged.exec</destFile>
+            </configuration>
+          </execution>
+          <execution>
+            <id>report-merged</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>report</goal>
+            </goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+              <outputDirectory>${project.reporting.outputDirectory}/jacoco-merged</outputDirectory>
+            </configuration>
+          </execution>
+          <!-- Coverage check — enforced at verify phase -->
+          <execution>
+            <id>check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+            <configuration>
+              <dataFile>${project.build.directory}/jacoco-merged.exec</dataFile>
+              <rules>
+                <rule>
+                  <element>BUNDLE</element>
+                  <limits>
+                    <limit>
+                      <counter>LINE</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${jacoco.line.minimum}</minimum>
+                    </limit>
+                    <limit>
+                      <counter>BRANCH</counter>
+                      <value>COVEREDRATIO</value>
+                      <minimum>${jacoco.branch.minimum}</minimum>
+                    </limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Source JAR for Maven Central -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals>
+              <goal>jar-no-fork</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Javadoc JAR for Maven Central -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-javadoc-plugin</artifactId>
+        <configuration>
+          <release>21</release>
+          <failOnError>false</failOnError>
+        </configuration>
+        <executions>
+          <execution>
+            <id>attach-javadocs</id>
+            <goals>
+              <goal>jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+
+    </plugins>
+  </build>
+
+  <!-- ================================================================ -->
+  <!-- Profiles                                                           -->
+  <!-- ================================================================ -->
+  <profiles>
+    <!-- OWASP dependency-check — run explicitly: mvn verify -Powasp -->
+    <profile>
+      <id>owasp</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.owasp</groupId>
+            <artifactId>dependency-check-maven</artifactId>
+            <version>${owasp-dependency-check.version}</version>
+            <configuration>
+              <failBuildOnCVSS>7</failBuildOnCVSS>
+              <suppressionFile>owasp-suppressions.xml</suppressionFile>
+            </configuration>
+            <executions>
+              <execution>
+                <goals>
+                  <goal>check</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!-- Release to Maven Central via OSSRH -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>3.2.4</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+                <configuration>
+                  <gpgArguments>
+                    <arg>--pinentry-mode</arg>
+                    <arg>loopback</arg>
+                  </gpgArguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>0.5.0</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <tokenAuth>true</tokenAuth>
+              <autoPublish>false</autoPublish>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+</project>

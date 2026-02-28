@@ -1,0 +1,28 @@
+<!--
+  logback-test.xml
+  ================
+  Unit-test Logback configuration.
+
+  Outputs to CONSOLE only — no Kafka dependency, so unit tests run without
+  any broker requirement. Integration tests (LogbackKafkaIntegrationIT)
+  build their own appender programmatically against the Testcontainers broker,
+  bypassing this file entirely.
+-->
+<configuration scan="false">
+
+  <!-- Register PiiMaskingConverter so %maskedMsg is available in patterns -->
+  <conversionRule
+      conversionWord="maskedMsg"
+      converterClass="io.github.girisenji.aegis.producer.PiiMaskingConverter"/>
+
+  <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+    <encoder>
+      <pattern>%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %maskedMsg%n</pattern>
+    </encoder>
+  </appender>
+
+  <root level="DEBUG">
+    <appender-ref ref="CONSOLE"/>
+  </root>
+
+</configuration>

@@ -1,0 +1,167 @@
+<!--
+  logback-spring-aegis.xml
+  ========================
+  Include this fragment in your service's logback-spring.xml:
+
+      <include resource="logback-spring-aegis.xml"/>
+
+  Then ensure the ASYNC_KAFKA appender is referenced in your <root> or
+  relevant <logger> element:
+
+      <root level="INFO">
+          <appender-ref ref="CONSOLE"/>
+          <appender-ref ref="ASYNC_KAFKA"/>
+      </root>
+
+  Required application.yml properties
+  ------------------------------------
+  aegis:
+    repo-name: my-org/my-service       # forwarded as repoName JSON field
+    kafka:
+      bootstrap-servers: kafka:9092    # Kafka broker(s)
+      topic: aegis-production-errors   # default; override if needed
+
+  Author: Giri Senji
+-->
+<included>
+
+  <!--
+    Pull Spring Boot application properties into Logback's context so they
+    can be referenced as ${VARIABLE} throughout this configuration fragment.
+
+    springProperty elements are evaluated at Logback initialisation time,
+    after the Spring Environment is available (requires logback-spring.xml,
+    NOT logback.xml).
+  -->
+  <springProperty name="SERVICE_NAME"    source="spring.application.name"        defaultValue="unknown-service"/>
+  <springProperty name="REPO_NAME"       source="aegis.repo-name"               defaultValue=""/>
+  <springProperty name="KAFKA_BROKERS"   source="aegis.kafka.bootstrap-servers"  defaultValue="localhost:9092"/>
+  <springProperty name="KAFKA_TOPIC"     source="aegis.kafka.topic"              defaultValue="aegis-production-errors"/>
+  <springProperty name="MAX_BLOCK_MS"    source="aegis.kafka.max-block-ms"       defaultValue="0"/>
+  <springProperty name="KAFKA_ACKS"      source="aegis.kafka.acks"               defaultValue="0"/>
+
+  <!--
+    conversionRule: registers PiiMaskingConverter under the conversion word
+    %maskedMsg for use in pattern-layout appenders (CONSOLE, FILE, etc.).
+    Not strictly required for the Kafka JSON path (handled by
+    MaskingMessageJsonProvider) but useful for symmetric masking everywhere.
+  -->
+  <conversionRule
+      conversionWord="maskedMsg"
+      converterClass="io.github.girisenji.aegis.producer.PiiMaskingConverter"/>
+
+  <!--
+    KAFKA appender
+    ==============
+    Uses LoggingEventCompositeJsonEncoder with a custom MaskingMessageJsonProvider
+    so the 'message' JSON field has PII redacted before bytes leave the JVM.
+
+    Tuned for fire-and-forget:
+      max.block.ms = 0  → never block the calling thread if Kafka is slow
+      acks = 0          → no broker acknowledgement required
+      retries = 0       → no retry storm if the broker is temporarily down
+  -->
+  <appender name="KAFKA" class="com.github.danielwegener.logback.kafka.KafkaAppender">
+
+    <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+      <providers>
+
+        <!-- Timestamp in ISO-8601 UTC -->
+        <timestamp>
+          <fieldName>@timestamp</fieldName>
+          <pattern>yyyy-MM-dd'T'HH:mm:ss.SSS'Z'</pattern>
+          <timeZone>UTC</timeZone>
+        </timestamp>
+
+        <!-- Severity -->
+        <logLevel>
+          <fieldName>level</fieldName>
+        </logLevel>
+
+        <!-- Logger name (class) -->
+        <loggerName>
+          <fieldName>logger</fieldName>
+        </loggerName>
+
+        <!--
+          PII-masked message field.
+          MaskingMessageJsonProvider replaces the default MessageJsonProvider;
+          it calls PiiMaskingConverter.mask() before writing the JSON value.
+        -->
+        <provider class="io.github.girisenji.aegis.producer.MaskingMessageJsonProvider"/>
+
+        <!-- Full stack trace, if present -->
+        <stackTrace>
+          <fieldName>stackTrace</fieldName>
+          <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+            <maxDepthPerThrowable>30</maxDepthPerThrowable>
+            <maxLength>4096</maxLength>
+            <rootCauseFirst>true</rootCauseFirst>
+            <exclude>sun\.reflect\..*</exclude>
+            <exclude>java\.lang\.reflect\..*</exclude>
+          </throwableConverter>
+        </stackTrace>
+
+        <!-- MDC key-value pairs (trace-id, span-id, etc.) -->
+        <mdc/>
+
+        <!-- Service-level contextual fields -->
+        <pattern>
+          <pattern>
+            {
+              "serviceName": "${SERVICE_NAME}",
+              "repoName":    "${REPO_NAME}"
+            }
+          </pattern>
+        </pattern>
+
+      </providers>
+    </encoder>
+
+    <!-- Only forward ERROR and above to Kafka -->
+    <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+      <level>ERROR</level>
+    </filter>
+
+    <topic>${KAFKA_TOPIC}</topic>
+
+    <!--
+      NoKeyKeyingStrategy: messages are distributed round-robin across Kafka
+      partitions.  Ordering is not required; avoid hot-partition issues.
+    -->
+    <keyingStrategy class="com.github.danielwegener.logback.kafka.keying.NoKeyKeyingStrategy"/>
+
+    <!--
+      AsynchronousDeliveryStrategy: Logback hands the record to the Kafka
+      producer's internal buffer and returns immediately.  The ASYNC_KAFKA
+      wrapper below adds an additional in-process queue for burst absorption.
+    -->
+    <deliveryStrategy class="com.github.danielwegener.logback.kafka.delivery.AsynchronousDeliveryStrategy"/>
+
+    <!-- Producer configuration — fire-and-forget, never block -->
+    <producerConfig>bootstrap.servers=${KAFKA_BROKERS}</producerConfig>
+    <producerConfig>max.block.ms=${MAX_BLOCK_MS}</producerConfig>
+    <producerConfig>acks=${KAFKA_ACKS}</producerConfig>
+    <producerConfig>retries=0</producerConfig>
+    <producerConfig>compression.type=lz4</producerConfig>
+    <producerConfig>linger.ms=5</producerConfig>
+
+  </appender>
+
+  <!--
+    ASYNC_KAFKA appender
+    ====================
+    Wraps KAFKA in an AsyncAppender to decouple log statements from I/O.
+
+    neverBlock=true : if the queue is full, DROP the event rather than
+    blocking the application thread.  Logging must never impact latency.
+  -->
+  <appender name="ASYNC_KAFKA" class="ch.qos.logback.classic.AsyncAppender">
+    <appender-ref ref="KAFKA"/>
+    <queueSize>512</queueSize>
+    <neverBlock>true</neverBlock>
+    <!-- Only discard TRACE/DEBUG/INFO when queue is above 80% full -->
+    <discardingThreshold>20</discardingThreshold>
+  </appender>
+
+</included>
