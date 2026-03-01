@@ -78,10 +78,15 @@
           <fieldName>level</fieldName>
         </logLevel>
 
-        <!-- Logger name (class) -->
+        <!-- Logger name (class) — must match @JsonProperty("logger_name") in ErrorLogEvent -->
         <loggerName>
-          <fieldName>logger</fieldName>
+          <fieldName>logger_name</fieldName>
         </loggerName>
+
+        <!-- Thread name — must match @JsonProperty("thread_name") in ErrorLogEvent -->
+        <threadName>
+          <fieldName>thread_name</fieldName>
+        </threadName>
 
         <!--
           PII-masked message field.
@@ -90,9 +95,9 @@
         -->
         <provider class="io.github.girisenji.aegis.producer.MaskingMessageJsonProvider"/>
 
-        <!-- Full stack trace, if present -->
+        <!-- Full stack trace — must match @JsonProperty("stack_trace") in ErrorLogEvent -->
         <stackTrace>
-          <fieldName>stackTrace</fieldName>
+          <fieldName>stack_trace</fieldName>
           <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
             <maxDepthPerThrowable>30</maxDepthPerThrowable>
             <maxLength>4096</maxLength>
@@ -105,12 +110,17 @@
         <!-- MDC key-value pairs (trace-id, span-id, etc.) -->
         <mdc/>
 
-        <!-- Service-level contextual fields -->
+        <!--
+          Service-level contextual fields.
+          Field names must match @JsonProperty annotations in ErrorLogEvent:
+            "service"  → serviceName  (used in isValid() — MUST be present)
+            "repoName" → repoName     (used by agent to locate source files)
+        -->
         <pattern>
           <pattern>
             {
-              "serviceName": "${SERVICE_NAME}",
-              "repoName":    "${REPO_NAME}"
+              "service":  "${SERVICE_NAME}",
+              "repoName": "${REPO_NAME}"
             }
           </pattern>
         </pattern>

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":dependencyDashboard",
+    ":semanticCommits",
+    ":automergeMinor",
+    "group:allNonMajor"
+  ],
+  "commitMessagePrefix": "chore(deps):",
+  "prConcurrentLimit": 5,
+  "prHourlyLimit": 2,
+  "schedule": ["before 6am on Monday"],
+  "labels": ["dependencies"],
+  "packageRules": [
+    {
+      "description": "Auto-merge patch updates for Spring Boot (low risk)",
+      "matchPackageNames": ["org.springframework.boot:spring-boot-dependencies"],
+      "matchUpdateTypes": ["patch"],
+      "automerge": true
+    },
+    {
+      "description": "Group all Testcontainers updates",
+      "matchPackageNames": ["org.testcontainers:testcontainers-bom"],
+      "groupName": "testcontainers"
+    },
+    {
+      "description": "Group all Maven plugin updates",
+      "matchManagers": ["maven"],
+      "matchDepTypes": ["plugin"],
+      "groupName": "maven plugins"
+    },
+    {
+      "description": "Require manual PR for major version bumps",
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["major-upgrade", "dependencies"]
+    }
+  ],
+  "maven": {
+    "enabled": true
+  }
+}

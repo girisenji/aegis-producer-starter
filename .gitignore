@@ -58,7 +58,8 @@ ehthumbs.db
 Desktop.ini
 
 # ── GitHub Actions / Workflows ───────────────────────────────────────────────
-.github/
+# Do NOT ignore .github/ — workflows must be tracked in git for GitHub Actions
+# .github/
 
 # ── Test & coverage reports ──────────────────────────────────────────────────
 target/surefire-reports/

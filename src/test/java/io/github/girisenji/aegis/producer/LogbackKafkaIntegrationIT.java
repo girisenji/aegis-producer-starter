@@ -37,8 +37,10 @@ import ch.qos.logback.classic.LoggerContext;
 import ch.qos.logback.classic.filter.ThresholdFilter;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import net.logstash.logback.composite.loggingevent.LogLevelJsonProvider;
+import net.logstash.logback.composite.loggingevent.LoggerNameJsonProvider;
 import net.logstash.logback.composite.loggingevent.LoggingEventFormattedTimestampJsonProvider;
 import net.logstash.logback.composite.loggingevent.LoggingEventJsonProviders;
+import net.logstash.logback.composite.loggingevent.ThreadNameJsonProvider;
 import net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder;
 
 /**
@@ -97,9 +99,19 @@ class LogbackKafkaIntegrationIT {
         var maskedMsg = new MaskingMessageJsonProvider();
         maskedMsg.setContext(ctx);
 
+        var loggerNameProvider = new LoggerNameJsonProvider();
+        loggerNameProvider.setFieldName("logger_name");
+        loggerNameProvider.setContext(ctx);
+
+        var threadNameProvider = new ThreadNameJsonProvider();
+        threadNameProvider.setFieldName("thread_name");
+        threadNameProvider.setContext(ctx);
+
         LoggingEventJsonProviders providers = (LoggingEventJsonProviders) encoder.getProviders();
         providers.addTimestamp(timestamp);
         providers.addLogLevel(levelProvider);
+        providers.addLoggerName(loggerNameProvider);
+        providers.addThreadName(threadNameProvider);
         providers.addProvider(maskedMsg);
         encoder.start();
 
@@ -216,7 +228,10 @@ class LogbackKafkaIntegrationIT {
                 .endsWith("}")
                 .contains("\"level\"")
                 .contains("\"message\"")
-                .contains("\"@timestamp\"");
+                .contains("\"@timestamp\"")
+                // Field names must match @JsonProperty in ErrorLogEvent
+                .contains("\"logger_name\"")
+                .contains("\"thread_name\"");
     }
 
     @Test

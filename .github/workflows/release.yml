@@ -1,0 +1,92 @@
+name: Release
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  # ------------------------------------------------------------------ #
+  # Step 1: Release Please — opens / updates a release PR              #
+  # ------------------------------------------------------------------ #
+  release-please:
+    name: Release Please
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name:        ${{ steps.release.outputs.tag_name }}
+      version:         ${{ steps.release.outputs.version }}
+
+    steps:
+      - name: Run Release Please
+        id: release
+        uses: googleapis/release-please-action@v4
+        with:
+          release-type: maven
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # ------------------------------------------------------------------ #
+  # Step 2: Publish to Maven Central — only when a release tag is cut  #
+  # ------------------------------------------------------------------ #
+  publish:
+    name: Publish to Maven Central
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+
+    # Use a GitHub environment with required reviewers for prod publishing
+    environment: maven-central
+
+    steps:
+      - name: Checkout tag ${{ needs.release-please.outputs.tag_name }}
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Set up JDK 21 with GPG signing + Maven Central credentials
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+          # GPG key imported for artifact signing
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: GPG_PASSPHRASE
+          # Injects <server id="central"> into ~/.m2/settings.xml so that
+          # central-publishing-maven-plugin can authenticate at deploy time.
+          server-id: central
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_PASSWORD
+          overwrite-settings: true
+
+      # Release Please already update pom.xml to the release version in the
+      # release PR, but we re-apply here as a safety net in case something
+      # slipped through (e.g. a manual cherry-pick onto the tag).
+      - name: Ensure pom.xml is at release version
+        run: |
+          mvn --batch-mode --no-transfer-progress versions:set \
+            -DnewVersion=${{ needs.release-please.outputs.version }} \
+            -DgenerateBackupPoms=false
+
+      - name: Build, verify and publish (release profile)
+        run: |
+          mvn --batch-mode --no-transfer-progress deploy \
+            -Prelease \
+            -DskipTests \
+            -Dgpg.passphrase=${{ secrets.GPG_PASSPHRASE }}
+        env:
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+          # These env-var names must match server-username / server-password above
+          MAVEN_USERNAME: ${{ secrets.OSSRH_USERNAME }}
+          MAVEN_PASSWORD: ${{ secrets.OSSRH_TOKEN }}
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-jars-${{ needs.release-please.outputs.version }}
+          path: target/*.jar
+          retention-days: 90
